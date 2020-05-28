@@ -19,7 +19,7 @@ class formulite:
 
     _manager_instance = None # This is a singleton.
 
-    # Using vars() on a pydantic class is kinda frustrating.
+    # Using vars() on a pydantic class can be kinda frustrating.
     # The couple next methods are a way to go around it.
     # They also remove the base class attributes that would be returned.
     @staticmethod

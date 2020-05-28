@@ -30,13 +30,13 @@ async def main():
 
     # the method below is specially useful if you want to increase warnings by 1 for example.
     Jhonny.credentials = 356272
-    await manager.update_item(Jhonny, credentials=456789) # it gets an updated instance and some value it had before (its not intuitive, ik)
+    await manager.update_item(Jhonny, credentials=456789) # it gets an updated instance and some unique value it had before (its not intuitive, ik)
 
     Sarah = userlist[0]
     old_warn = Sarah.warnings
     Sarah.warnings += 1
     await manager.update_item(Sarah, warnings=0) # so incrementing something is relatively easy.
-    # however this fails because warnings are not discriminatory enough. (Lee also got a warning)
+    # however this fails because warnings are not unique. (mr. Leemon also got a warning)
 
     # Now let's see if the things we added are correctly inserted into the database
     adm = await manager.search_joined(Sample_User, credentials=356272)
