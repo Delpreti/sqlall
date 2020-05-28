@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc[cod]
+*$py.class
+support files/
+database.db
