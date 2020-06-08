@@ -42,12 +42,10 @@ async def main():
     adm = await manager.search_joined(Sample_User, credentials=356272)
     for item in adm:
         print(item)
-    # same result as await manager.search_joined(Sample_User, credentials=111111)
 
     cool_members = await manager.search_joined(Sample_User, warnings=1)
     for item in cool_members:
         print(item)
-    # same result as await manager.search(Sample_Member, warnings=0)
 
     # we can also remove stuff if we want -to be implemented-
 
