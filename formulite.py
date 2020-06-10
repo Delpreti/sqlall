@@ -2,7 +2,7 @@ import aiosqlite
 import os
 from pydantic import BaseModel
 import inspect
-import math
+import math, re
 
 # FORMUlite provides a simple ORM to perform asynchronous connection within an sqlite database.
 # currently under development, there are probably several bugs just waiting to be found.
@@ -80,6 +80,7 @@ class formulite:
 class DatabaseManager:
     def __init__(self, connection):
         self.conn = connection
+        self._typeflag = None
 
     # should be called at the end of execution
     async def close(self):
@@ -87,9 +88,14 @@ class DatabaseManager:
 
     ### Auxiliary internal functions ###
 
-    # tablenames are hidden from the user and should always be obtained through this function
-    def _tablename(self, Obj):
+    # tablenames are hidden from the user and should always be obtained through these 2 functions
+    def _tablename(self, Obj, key=None):
+        if key:
+            return f"{Obj.__name__.lower()}_{key}s"
         return Obj.__name__.lower() + "s" # s makes it plural, a dumb yet effective solution
+
+    def _string_totablename(self, string):
+        return string.lower() + "s"
 
     # This method returns true if the table does not exist in the database, and false otherwise
     async def _table_nonexistent(self, tname):
@@ -101,6 +107,7 @@ class DatabaseManager:
 
     # This method acquires and returns object attributes in a dictionary. It does not return base class attributes.
     # Does not support multiple inheritance. (I should probably fix this)
+    # Dictionary format is {attribute name : attribute type}
     def _objprops(self, Obj):
         out = {}
         chaves = list(Obj.__fields__.keys())
@@ -118,7 +125,19 @@ class DatabaseManager:
         return out
 
     # This method is responsible for accessing the typedict dictionary and inferring sqlite types from pydantic types
+    # pytype argument should be passed as a string
     def _translate_type(self, pytype):
+        # If the type is a list, it should flag for another table to be created and return the type inside the list
+        checklist = re.match("\[(\w+)]", pytype)
+        if checklist is not None:
+            self._typeflag = True
+            # This try except will return as a class name if the captured type is a user defined class
+            # Otherwise it will return a string containing the sqlite type as usual
+            try:
+                Custom_Obj = globals()[checklist.group(1)]
+                return Custom_Obj.__name__
+            except KeyError:
+                pytype = checklist.group(1)
         return formulite.typedict[pytype]
 
     # This method needs a closer look
@@ -140,18 +159,57 @@ class DatabaseManager:
 
     ### CREATE ###
 
+    # Internal method to create a table that links an object to a list of other objects
+    async def _create_table_link_obj(self, Obj, prop_name, Custom_Obj):
+        sql = f"CREATE TABLE IF NOT EXISTS {self._tablename(Obj, prop_name)} ( {Obj.__name__.lower()}_{prop_name}_id INTEGER PRIMARY KEY"
+        sql += f"{Obj.__name__.lower()}_id INTEGER NOT NULL,"
+        sql += f"{Custom_Obj.__name__.lower()}_id INTEGER NOT NULL,"
+
+        sql += f"quantity INTEGER," # This should be optional somehow
+
+        sql += f''', FOREIGN KEY ({Obj.__name__.lower()}_id) REFERENCES {self._tablename(Obj)} ({Obj.__name__.lower()}_id) ON UPDATE CASCADE ON DELETE CASCADE'''
+        sql += f''', FOREIGN KEY ({Custom_Obj.__name__.lower()}_id) REFERENCES {self._tablename(Custom_Obj)} ({Custom_Obj.__name__.lower()}_id) ON UPDATE CASCADE ON DELETE CASCADE'''
+
+        await self.conn.execute(sql)
+        await self.conn.commit()
+
+    # Internal method to create a table that links an object to a list of some builtin type
+    async def _create_table_link_items(self, Obj, prop_name, sqlite_type):
+        sql = f"CREATE TABLE IF NOT EXISTS {self._tablename(Obj, prop_name)} ( {Obj.__name__.lower()}_{prop_name}_id INTEGER PRIMARY KEY"
+        sql += f"{Obj.__name__.lower()}_id INTEGER NOT NULL,"
+        sql += f"{prop_name} {sqlite_type},"
+
+        sql += f"quantity INTEGER," # This should be optional somehow
+
+        sql += f''', FOREIGN KEY ({Obj.__name__.lower()}_id) REFERENCES {self._tablename(Obj)} ({Obj.__name__.lower()}_id) ON UPDATE CASCADE ON DELETE CASCADE'''
+        
+        await self.conn.execute(sql)
+        await self.conn.commit()
+
     # This method creates a table, very straightforward
     async def create_table(self, Obj):
         props = self._objprops(Obj)
         sql = f"CREATE TABLE IF NOT EXISTS {self._tablename(Obj)} ( {Obj.__name__.lower()}_id INTEGER PRIMARY KEY"
 
-        Sup = Obj.mro()[1]
+        Sup = Obj.mro()[1] # mro() gets the classes that are used to build the object.
         sup_name = f"{Sup.__name__.lower()}"
         if Sup != BaseModel:
             sql += f", {sup_name}_id INTEGER" # NOT NULL"
 
-        for key, value in list(props.items()):
-            sql += f", {key} {self._translate_type(value)}"
+        for prop_name, prop_type in list(props.items()):
+            sqlite_type = self._translate_type(prop_type)
+            if self._typeflag:
+                try:
+                    # Verify if sqlite_type is a class defined in dbobjects or a builtin type
+                    Custom_Obj = globals()[sqlite_type]
+                    self._create_table_link_obj(Obj, prop_name, Custom_Obj):
+                except KeyError:
+                    # If it's a builtin type, it will fall here
+                    self._create_table_link_items(Obj, prop_name, sqlite_type):
+                self._typeflag = None
+                continue
+            else:
+                sql += f", {prop_name} {sqlite_type}"
 
         # check for superclass (again)
         if Sup != BaseModel:
@@ -160,6 +218,20 @@ class DatabaseManager:
         sql += " )"
         await self.conn.execute(sql)
         await self.conn.commit()
+
+    # This method creates a table for every class it finds in the file passed as parameter. Might be useful, idk
+    async def create_all_tables(self, filename='dbobjects.py'):
+        # Get the file
+        if os.path.exists(filename):
+            file = open(filename)
+            # Find matching classes using regex
+            results = re.findall(r"class ([A-z]*)", file.read())
+            # Create the tables
+            for string in results:
+                await self.create_table(self._string_totablename(string))
+        else:
+            # raise an exception if the file does not exist
+            raise FileNotFoundError(f"Couldn't find the file {filename}")
 
     ### READ ###
     # Many functions inside this category are similar, should study a way to join them together.
@@ -336,16 +408,23 @@ class DatabaseManager:
         return results
 
     ### UPDATE ###
+
+    # Insert an instance at the appropriate table
     async def add_one(self, instance, propagate=False, _cursed=None):
+        # Get the table based on the object class and verify its existence
         Obj = instance.__class__
         if await self._table_nonexistent(self._tablename(Obj)):
             await self.create_table(Obj)
+
+        # Column names will be needed (maybe should have some layer of abstraction for this)
         attrib = formulite.vars_keys(Obj)
         
+        # A cursor can be passed here for some reason I forgot
         c = _cursed
         if c == None:
             c = await self.conn.cursor()
 
+        # Checks for superclass and adds it recursively
         Sup = Obj.mro()[1]
         if Sup != BaseModel:
             attrib.insert(0, f"{Sup.__name__.lower()}_id")
@@ -353,19 +432,21 @@ class DatabaseManager:
                 before = await self._extract_from_instance(Sup, instance)
                 await self.add_one(before, _cursed=c)
 
+        # Insert the values into the table
         attributes = ", ".join(attrib)
         interr = ", ".join(["?"] * len(attrib))
         sql = f"INSERT INTO {self._tablename(Obj)} ({attributes}) VALUES ({interr})"
-        
         await c.execute(sql, self._parse_instance(instance, c, Sup))
         await self.conn.commit()
         if c != _cursed:
             await c.close()
 
+    # This is likely the wrong way to do it, but works
     async def add_many(self, instance_list, propagate=False):
         for instance in instance_list:
             await self.add_one(instance, propagate)
 
+    # This is likely the right way to do it, but does not work (yet)
     async def _add_many(self, instance_list, propagate=False):
         if instance_list == []:
             # should raise some error here
@@ -392,7 +473,8 @@ class DatabaseManager:
         await self.conn.commit()
         await c.close()
 
-    async def update_attribute(self, Obj, cname, change): # change should be a {old:new} dictionary
+    async def update_attribute(self, Obj, cname, change):
+        # change parameter should be a {old:new} dictionary
         await self.conn.execute(f"UPDATE {self._tablename(Obj)} SET {cname}={list(change.values())[0]} WHERE {cname} is {list(change.keys())[0]}")
         await self.conn.commit()
 

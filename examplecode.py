@@ -20,6 +20,8 @@ async def main():
     await manager.create_table(Sample_Admin)
     await manager.create_table(Sample_Member)
 
+    # await manager.create_all_tables() # to be tested
+
     # At the time of this writing, you cannot add this userlist with a single command, because of the different classes.
     userlist = get_some_users()
 

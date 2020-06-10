@@ -52,28 +52,35 @@ class AlbumManager:
 # note that, since the database access is made externally, this implementation is not asynchronous
 # I mean, you can do an asynchronous version of it if you really want to
 class Paged_list:
-    def __init__(self, page_size, item_list, wrap=True):
+    def __init__(self, page_size, item_list, wrap=True, page_factory=None):
         if page_size <= 0:
-            raise ValueError('size should be greater than 0')
+            raise ValueError('page_size should be greater than 0')
         self.items = item_list
         self.page_size = page_size
         self.current_page = 0
+
         # This could be a calculated property but I decided to keep it here since it should only be calculated once
-        self.album_size = math.ceil(len(self.items) / self.size)
+        self.album_size = math.ceil(len(self.items) / self.page_size)
+
         # Wrap means that if you try to go beyond the last page you get sent back to the beginning, and vice-versa
         # This behaviour does not apply on the iterator
         self.wrap = wrap
 
+        # Page factory is a function passed in as parameter. This allows you to change the way a page is returned.
+        self.page_factory = page_factory
+
     def get_current_page(self):
-        # If the page was created empty, should also be returned that way
-        if not self.items:
-            return []
-        # Last page may have less than (page_size) elements, so it must be treated different
-        if self.current_page == self.album_size - 1:
-            return self.items[self.page_size * self.current_page : len(self.items)]
-        # Returns a regular page in the album
-        else:
-            return self.items[self.page_size * self.current_page : self.page_size * (1 + self.current_page)]
+        page = []
+        if self.items:
+            # Last page may have less than (page_size) elements, so it must be treated different
+            if self.current_page == self.album_size - 1:
+                page = self.items[self.page_size * self.current_page : len(self.items)]
+            else:
+                page = self.items[self.page_size * self.current_page : self.page_size * (1 + self.current_page)]
+        # Call the page_factory if there is one
+        if self.page_factory:
+            page = self.page_factory(page)
+        return page
 
     def __iter__(self):
         # iterates through multiple pages
@@ -119,7 +126,7 @@ class Paged_list:
 # Since aiosqlite is asynchronous, this implementation had to be aswell
 # I personally recommend it over the Paged_list, but that might depend on your application.
 class Album:
-    def __init__(self, page_size, dbmanager, album_Type, **kwargs):
+    def __init__(self, page_size, dbmanager, album_Type, wrap=True, page_factory=None, **kwargs):
         self.page_size = page_size
         self.dbmanager = dbmanager
         self.current_page = 0
@@ -127,6 +134,14 @@ class Album:
         # These are specific to the user:
         # The class (not an instance) of the objects that the album should retrieve
         self.Type = album_Type
+
+        # Wrap means that if you try to go beyond the last page you get sent back to the beginning, and vice-versa
+        # This behaviour does not apply on the iterator
+        self.wrap = wrap
+
+        # Page factory is a function passed in as parameter. This allows you to change the way a page is returned.
+        self.page_factory = page_factory
+
         # A dictionary to specify the data that will be selected from the db
         self.data_column = kwargs # user_id
 
@@ -146,19 +161,33 @@ class Album:
 
     async def view(self):
         page = await self.dbmanager.select_some(self.Type, limit=self.page_size, offset=self.current_page * self.page_size, self.data_column)
+        if self.page_factory:
+            page = self.page_factory(page)
         return page
 
     # Goes to the next page (if possible) and returns it
     async def view_next(self):
-        self.current_page += 1
-        if self.current_page >= self.album_size:
-            self.current_page = 0
-        return await self.view()
+        if self.wrap:
+            self.current_page += 1
+            if self.current_page >= self.album_size:
+                self.current_page = 0
+            return await self.view()
+        else:
+            if self.current_page == self.album_size - 1:
+                return self.view()
+            self.current_page += 1
+            return self.view()
 
     # Goes to the previous page (if possible) and returns it
     async def view_prev(self):
-        self.current_page -= 1
-        if self.current_page < 0:
-            self.current_page = self.album_size - 1
-        return await self.view()
+        if self.wrap:
+            self.current_page -= 1
+            if self.current_page < 0:
+                self.current_page = self.album_size - 1
+            return await self.view()
+        else:
+            if self.current_page == 0:
+                return self.view()
+            self.current_page -= 1
+            return self.view()
 
