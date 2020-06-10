@@ -15,12 +15,8 @@ async def main():
     # Get the manager instance ready
     manager = await formulite.manager()
 
-    # create the tables for all objects (the add functions will call these automatically if they are not defined here)
-    await manager.create_table(Sample_User)
-    await manager.create_table(Sample_Admin)
-    await manager.create_table(Sample_Member)
-
-    # await manager.create_all_tables() # to be tested
+    # create the tables for all objects defined inside the dbobjects.py file
+    await manager.create_all_tables()
 
     # At the time of this writing, you cannot add this userlist with a single command, because of the different classes.
     userlist = get_some_users()

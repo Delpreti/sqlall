@@ -1,5 +1,5 @@
 import aiosqlite
-import os
+import os, importlib
 from pydantic import BaseModel
 import inspect
 import math, re
@@ -88,6 +88,13 @@ class DatabaseManager:
 
     ### Auxiliary internal functions ###
 
+    # Function to retieve a class from a string (copied from stackoverflow, don't judge me, we all do it sometimes)
+    # module_name is the file where the class was defined (dbobjects.py as standard)
+    def string_to_Obj(self, class_name, module_name='dbobjects'):
+        mod = importlib.import_module(module_name)
+        Obj = getattr(mod, class_name)
+        return Obj
+
     # tablenames are hidden from the user and should always be obtained through these 2 functions
     def _tablename(self, Obj, key=None):
         if key:
@@ -134,9 +141,9 @@ class DatabaseManager:
             # This try except will return as a class name if the captured type is a user defined class
             # Otherwise it will return a string containing the sqlite type as usual
             try:
-                Custom_Obj = globals()[checklist.group(1)]
+                Custom_Obj = self.string_to_Obj(checklist.group(1))
                 return Custom_Obj.__name__
-            except KeyError:
+            except AttributeError:
                 pytype = checklist.group(1)
         return formulite.typedict[pytype]
 
@@ -201,11 +208,11 @@ class DatabaseManager:
             if self._typeflag:
                 try:
                     # Verify if sqlite_type is a class defined in dbobjects or a builtin type
-                    Custom_Obj = globals()[sqlite_type]
-                    self._create_table_link_obj(Obj, prop_name, Custom_Obj):
-                except KeyError:
+                    Custom_Obj = self.string_to_Obj(sqlite_type)
+                    self._create_table_link_obj(Obj, prop_name, Custom_Obj)
+                except AttributeError:
                     # If it's a builtin type, it will fall here
-                    self._create_table_link_items(Obj, prop_name, sqlite_type):
+                    self._create_table_link_items(Obj, prop_name, sqlite_type)
                 self._typeflag = None
                 continue
             else:
@@ -228,7 +235,10 @@ class DatabaseManager:
             results = re.findall(r"class ([A-z]*)", file.read())
             # Create the tables
             for string in results:
-                await self.create_table(self._string_totablename(string))
+                mod_name = filename[:-3]
+                # Need to convert this string to an object before converting
+                Obj = self.string_to_Obj(string, mod_name)
+                await self.create_table(Obj)
         else:
             # raise an exception if the file does not exist
             raise FileNotFoundError(f"Couldn't find the file {filename}")
@@ -268,7 +278,7 @@ class DatabaseManager:
             out.append(Obj(**aux))
         return out
 
-    async def select_some(self, Obj, exact=True, limit=None, offset=None **kargs): # Unfinished
+    async def select_some(self, Obj, exact=True, limit=None, offset=None, **kargs): # Unfinished
         # 1 - Define which columns will be selected by the query
         att = formulite.vars_keys(Obj)
         rows = ", ".join(att)
