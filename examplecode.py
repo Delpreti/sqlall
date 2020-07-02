@@ -37,11 +37,11 @@ async def main():
     # however this fails because warnings are not unique. (mr. Leemon also got a warning)
 
     # Now let's see if the things we added are correctly inserted into the database
-    adm = await manager.search_joined(Sample_User, credentials=356272)
+    adm = await manager.search(Sample_User, joined=True, credentials=356272)
     for item in adm:
         print(item)
 
-    cool_members = await manager.search_joined(Sample_User, warnings=1)
+    cool_members = await manager.search(Sample_User, joined=True, warnings=1)
     for item in cool_members:
         print(item)
 

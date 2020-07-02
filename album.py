@@ -1,5 +1,6 @@
 from formulite import *
 from async_property import async_property
+import inspect
 
 # Many times, the amount of information to be extracted from the database is too long to be viewed in a single list,
 # Instead, users might want to skip through pages with limited amount of content in each.
@@ -22,8 +23,15 @@ class AlbumManager:
     # In case of a paged_list, you may want to only subscribe the parameters needed to rebuild it
     # (the parameter "album" does not necessairly takes an album)
     def subscribe(self, identifier, album):
-        self.album_dict[message.id] = album
+        self.album_dict[identifier] = album
         self.update_manager()
+
+    # Internal helper to automatically subscribe an album with a padronized key
+    def _auto_subscribe(self, album):
+        key = self.auto_id
+        self.subscribe(self.auto_id, album)
+        self.auto_id += 1
+        return key
 
     # Just an abstraction
     def get_album(self, key):
@@ -33,24 +41,19 @@ class AlbumManager:
     # it returns a key. The album can be obtained from the get_album() method above.
     async def create_album(self, page_size, album_Type, **kwargs):
         alb = await formulite.album(page_size, album_Type, **kwargs)
-        identifier = self.auto_id
-        self.subscribe(identifier, alb)
-        self.auto_id += 1
-        return identifier
+        return self._auto_subscribe(album)
 
     # This method does the same as above for paged lists.
     # Note that you can have both implementations with unique ids on a single manager instance
     def create_paged_list(self, page_size, item_list, wrap=True):
         alb = formulite.paged_list(page_size, item_list, wrap=wrap)
-        identifier = self.auto_id
-        self.subscribe(identifier, alb)
-        self.auto_id += 1
-        return identifier
+        return self._auto_subscribe(album)
 
 # This implementation dispenses use of LIMIT/OFFSET by storing all the items it needs
 # It's simple, but may consume too much memory at runtime
 # note that, since the database access is made externally, this implementation is not asynchronous
 # I mean, you can do an asynchronous version of it if you really want to
+# Does not support an async page_factory!
 class Paged_list:
     def __init__(self, page_size, item_list, wrap=True, page_factory=None):
         if page_size <= 0:
@@ -154,15 +157,18 @@ class Album:
     # Since the database requests are async, the iterator must be async.
     # I won't teach you how to use generators, good luck.
     async def async_iter(self):
-        while self.current_page < self.album_size:
+        while self.current_page < await self.album_size:
             page = await self.view()
             self.current_page += 1
             yield page
 
     async def view(self):
-        page = await self.dbmanager.select_some(self.Type, limit=self.page_size, offset=self.current_page * self.page_size, self.data_column)
+        page = await self.dbmanager.search(self.Type, limit=self.page_size, offset=self.current_page * self.page_size, joined=True, self.data_column)
         if self.page_factory:
-            page = self.page_factory(page)
+            if inspect.iscoroutinefunction(self.page_factory):
+                page = await self.page_factory(page)
+            else:
+                page = self.page_factory(page)
         return page
 
     # Goes to the next page (if possible) and returns it
