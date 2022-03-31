@@ -2,7 +2,7 @@
 FORMUlite provides a "simple" ORM to perform asynchronous connection within an sqlite database.
 currently under development.
 
-Current Version 0.5
+Current Version 0.4
 '''
 
 import aiosqlite
@@ -109,7 +109,7 @@ class DatabaseManager:
         sends in the queries for creating all the tables predicted in the setup operations
         this operation should only be called once. To add new tables after the database is created, see add_table()
         '''
-        for entity in self.entities.values():
+        for ename, entity in self.entities.items():
             entity.writedown(self.objects_file)
             #print(entity.create_table_query(self.objects_file, True))
             await self.conn.execute(entity.create_table_query(self.objects_file))
@@ -140,7 +140,7 @@ class DatabaseManager:
     # The object constructor will not be available by default, this would require a complex dynamic import
     # so build functions are provided to work as a factory for instances / table rows, which can later be included to the DB
 
-    def build(self, tablename, **kargs):
+    def build(self, tablename, **kargs): # needs improvement
         '''Calls the appropriate constructor for the corresponding table.'''
         e_class = load_module(tablename.lower(), self.objects_file, tablename)
         return e_class(**kargs)
@@ -161,6 +161,7 @@ class DatabaseManager:
         vals = []
         for key in self.entities[c_name].args_dict.keys():
             vals.append( (getattr(Obj, key)) )
+        #q_marks = " ?" * len(vals)
         vals_concat = ""
         for value in vals:
             if isinstance(value, str):
@@ -172,6 +173,8 @@ class DatabaseManager:
 
         keyjoin = ", ".join( self.entities[c_name].args_dict.keys() )
         sql = f"INSERT INTO {c_name} ({keyjoin}) VALUES ({vals_concat})"
+        #print(sql)
+        #print(vals)
         await self.conn.execute(sql)
         await self.conn.commit()
 
@@ -199,6 +202,7 @@ class DatabaseManager:
         set_string = ", ".join(up_list)
 
         sql = f"UPDATE {c_name} SET {set_string} WHERE {cond_string}"
+        #print(sql)
         await self.conn.execute(sql)
         await self.conn.commit()
 
@@ -212,16 +216,18 @@ class DatabaseManager:
         obj_list = await self.select_from(tablename, **kargs)
         return len(obj_list) > 0
 
-    async def select_from(self, cols_obj, tables_obj, *args):
-        '''
-        Returns a list of objects from the database that match the passed in conditions, if any
-        User must know some prior SQL to write the proper query (args should be in correct order)
-        '''
-        # I should perform some kind of type checking here, and throw an error if needed
-        sql = f"SELECT {str(cols_obj)} FROM {str(tables_obj)}"
-        for arg in args:
-            sql += f" {str(arg)}" # whitespace is relevant here
-
+    async def select_from(self, tablename, **kargs):
+        '''Returns a list of objects from the database that match the passed in conditions, if any'''
+        sql = f"SELECT * FROM {tablename}"
+        if kargs:
+            conditions = []
+            for key, val in kargs.items():
+                if isinstance(val, str):
+                    conditions.append(f"{key}=\'{val}\'")
+                else:
+                    conditions.append(f"{key}={val}")
+            joined_conditions = " AND ".join(conditions)
+            sql += f" WHERE {joined_conditions}"
         rows = await self.conn.execute_fetchall(sql)
         
         result = []
@@ -231,49 +237,41 @@ class DatabaseManager:
 
         return result
 
-    async def count(self, tables_obj, *args):
-        '''Helper for selecting the count of rows from a given table'''
-        return await select_from("count(*)", tables_obj, *args)
-
-    ### DROP / DELETE ###
-
-    async def drop_table(self, tablename):
-        '''Delete a table from the database'''
-        sql = f"DROP TABLE {tablename}"
-        await self.conn.execute(sql)
-        await self.conn.commit()
-
-    async def drop_tables(self, *tables):
-        '''Helper to delete multiple tables'''
-        for t in tables:
-            await self.drop_table(t)
-
-    async def reset(self):
-        '''Erases all tables, but keeps the file. See formulite.clear_database()'''
-        await drop_tables(*list(self.entities.keys()))
-
-    ### ALTER ###
-    # These should be used with caution
-
-    async def add_column(self, tablename, col_name, col_type):
-        '''Adds a new column to a table. Remember to update rows / reload objects'''
-        self.entities[tablename].add_attribute(col_name, col_type, self.objects_file)
-        sql = f"ALTER TABLE {tablename} ADD {col_name} {col_type}"
-        await self.conn.execute(sql)
-        await self.conn.commit()
-
-    async def add_columns(self, tablename, **columns):
-        '''Adds multiple columns to a table, in a more pythonic syntax'''
-        for key, value in columns.items():
-            await add_column(tablename, key, value)
-
-    async def drop_column(self, tablename, column): # not yet supported
-        # verify if column is part of primary_key before removal
-
-        # adjust the constructor in the corresponding object file
-
-        # only now drop the column in the database
-        sql = f"ALTER TABLE {tablename} DROP COLUMN {column}"
-        await self.conn.execute(sql)
-        await self.conn.commit()
+    async def select_ordered(self, tablename, order_by=None, **kargs):
+        '''Returns a list of objects from the database that match the passed in conditions, if any'''
+        sql = f"SELECT * FROM {tablename}"
+        if kargs:
+            conditions = []
+            for key, val in kargs.items():
+                if isinstance(val, str):
+                    conditions.append(f"{key}=\'{val}\'")
+                else:
+                    conditions.append(f"{key}={val}")
+            joined_conditions = " AND ".join(conditions)
+            sql += f" WHERE {joined_conditions}"
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        rows = await self.conn.execute_fetchall(sql)
         
+        result = []
+        for row in rows:
+            arg_dict = dict( zip(self.entities[tablename].args_dict.keys(), row) )
+            result.append(self.build(tablename, **arg_dict))
+
+        return result
+
+    async def count(self, tablename, **kargs):
+        '''Returns the count of rows from the database that match the passed in conditions, if any'''
+        sql = f"SELECT count(*) FROM {tablename}"
+        if kargs:
+            conditions = []
+            for key, val in kargs.items():
+                if isinstance(val, str):
+                    conditions.append(f"{key}=\'{val}\'")
+                else:
+                    conditions.append(f"{key}={val}")
+            joined_conditions = " AND ".join(conditions)
+            sql += f" WHERE {joined_conditions}"
+        count_list = await self.conn.execute_fetchall(sql)
+
+        return count_list[0][0]

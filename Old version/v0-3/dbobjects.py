@@ -1,15 +1,18 @@
+'''
+ALL object attributes should have type annotations and default values.
+In most cases the default values will be None, but you can set them to anything you want.
+'''
+
 from pydantic import BaseModel
 from datetime import datetime
-
-# ALL object attributes should have type annotations and default values.
-# In most cases the default values will be None, but you can set them to anything you want.
 
 class Sample_User(BaseModel):
     username: str = None
     user_discriminator: int = None
     user_last_action: str = None
 
-    def quote(self): # This was originally based on discord API, other purposes might have similar usage
+    def quote(self):
+        '''This was originally based on discord API, other purposes might have similar usage'''
         return f"{self.username}#{self.user_discriminator}"
 
     def too_fast(self):
