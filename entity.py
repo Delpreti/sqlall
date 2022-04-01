@@ -1,6 +1,7 @@
 '''
-Entity class to be used within formulite
+Entity class to be used within sql-all
 '''
+import os
 
 def ident(level):
     """Function to help with identation"""
@@ -19,30 +20,40 @@ class Entity:
         self.args_dict = args_dict
         self.primary_key = []
         self.foreign_key = {}
+        # todo: pass file_path here 
     
     # WRITE to file operation is split into several small methods (abstraction)
     # use the writedown() method in the end.
 
+    @staticmethod
+    def get_filename(classname):
+        return f"{classname}.py"
+
+    def auto_filename(self):
+        return Entity.get_filename(self.e_name)
+
     def _write_dict(self, file_obj, dict_name, dictionary):
-        file_obj.write(f"{ident(1)}{dict_name} = {"{"}\n")
+        leftbrack = '{'
+        rightbrack = '}'
+        file_obj.write(f"{ident(1)}{dict_name} = {leftbrack}\n")
         pairs = []
         for key, value in dictionary.items():
             pairs.append(f"\"{key}\":\"{value}\"")
         joined_pairs = ", ".join(pairs)
-        file_obj.write(f"{ident(2)}{joined_pairs}\n{ident(1)}{"}"}\n\n")
+        file_obj.write(f"{ident(2)}{joined_pairs}\n{ident(1)}{rightbrack}\n\n")
 
     def _write_name(self, file_obj):
         file_obj.write(f"class {self.e_name}:\n\n")
 
     def _write_attrs(self, file_obj):
-        _write_dict(self, file_obj,"_attribute_types", self.args_dict)
+        self._write_dict(file_obj,"_attribute_types", self.args_dict)
 
     def _write_PK(self, file_obj):
         pk_list_str = "\", \"".join(self.primary_key)
         file_obj.write(f"{ident(1)}_primary_key = [\"{pk_list_str}\"]\n\n")
 
     def _write_FK(self, file_obj):
-        _write_dict(self, file_obj,"_foreign_key", self.foreign_key)
+        self._write_dict(file_obj,"_foreign_key", self.foreign_key)
 
     def _write_constructor(self, file_obj):
         file_obj.write(ident(1) + "def __init__(self, **kargs):\n")
@@ -50,8 +61,11 @@ class Entity:
             file_obj.write(ident(2) + f"self.{key} = kargs[\"{key}\"]\n")
         file_obj.write("\n")
 
-    def writedown(self, filename, rewrite=False):
+    def writedown(self, file_path="", filename=None, rewrite=False):
         """method to actually write the entity object model in the corresponding file"""
+        if filename is None:
+            filename = self.auto_filename()
+        filename = file_path + filename
         if not self.primary_key:
             print(f"Primary key not informed, object {self.e_name} could not be written")
             return
@@ -70,21 +84,13 @@ class Entity:
             return ", ".join(pk)
         return ", ".join(self.primary_key)
 
-    def create_table_query(self, filename, readable=False):
-        '''returns the query used for table creation'''
-        endl = " "
-        if readable:
-            endl = "\n"
-        sql = f"CREATE TABLE IF NOT EXISTS {self.e_name}({endl}"
-        for key, value in self.args_dict.items():
-            sql += f"{key} {value},{endl}"
-        #pkeys = ", ".join(self.primary_key)
-        sql += f"PRIMARY KEY({self.joined_primary_key(self.primary_key)})"
-        if self.foreign_key:
-            for key, value in self.foreign_key.items():
-                sql += F",{endl}FOREIGN KEY ({key}) REFERENCES {value} ({self.joined_primary_key()})"
-        return sql + f"{endl})"
-
-    def add_attribute(self, col_name, col_type, filename):
+    def add_attribute(self, col_name, col_type, file_path="", filename=None):
+        if filename is None:
+            filename = self.auto_filename()
         self.args_dict[col_name] = col_type
-        self.writedown(filename, rewrite=True)
+        self.writedown(file_path, filename, rewrite=True)
+
+    def change_name(self, new_name):
+        '''change the name associated to this entity (could break the database)'''
+        self.e_name = new_name
+        # self.writedown(self.file_path)

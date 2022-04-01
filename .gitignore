@@ -1,4 +1,5 @@
 __pycache__/
+resources/
 *.pyc[cod]
 *$py.class
 support files/
