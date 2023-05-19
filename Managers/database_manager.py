@@ -87,6 +87,13 @@ class DatabaseManager:
         '''
         self.entities[name] = Entity(name, kargs)
 
+    def get_table_object(self, name):
+        '''
+        Return a database entity object
+        Used for metadata processing of statements
+        '''
+        return self.entities[name]
+
     def append_primary_key(self, entity, *attrs):
         '''appends the given attributes to the given entity primary key list'''
         for att in attrs:

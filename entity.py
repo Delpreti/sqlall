@@ -61,13 +61,23 @@ class Entity:
             file_obj.write(ident(2) + f"self.{key} = kargs[\"{key}\"]\n")
         file_obj.write("\n")
 
+    def _write_equals(self, file_obj):
+        file_obj.write(ident(1) + "def __eq__(self, other):\n")
+        file_obj.write(ident(2) + f"if type(other).__name__ != \"{self.e_name}\":\n")
+        file_obj.write(ident(3) + f"return False\n")
+        for pk in self.primary_key:
+            file_obj.write(ident(2) + f"if self.{pk} != other.{pk}:\n")
+            file_obj.write(ident(3) + f"return False\n")
+        file_obj.write(ident(2) + f"return True\n")
+        file_obj.write("\n")
+
     def writedown(self, file_path="", filename=None, rewrite=False):
         """method to actually write the entity object model in the corresponding file"""
         if filename is None:
             filename = self.auto_filename()
         filename = file_path + filename
         if not self.primary_key:
-            print(f"Primary key not informed, object {self.e_name} could not be written")
+            print(f"Primary key not informed, object \"{self.e_name}\" could not be written")
             return
         _init_header(filename, rewrite)
         with open(filename, "a") as obj_file:
@@ -77,6 +87,7 @@ class Entity:
             if self.foreign_key:
                 self._write_FK(obj_file)
             self._write_constructor(obj_file)
+            self._write_equals(obj_file)
 
     def joined_primary_key(self, pk=None):
         '''helper to join the primary key in case of composite key'''

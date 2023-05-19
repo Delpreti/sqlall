@@ -28,6 +28,10 @@ class utils:
         return Select_query(tables_obj, cols_obj, *args)
 
     @staticmethod
+    def join(table_A, table_B):
+        return Join(table_A, table_B)
+
+    @staticmethod
     def load_module(module_name, module_path, piece=None):
         '''Function to import modules dinamically'''
         # print(f"Loading module {module_name}")

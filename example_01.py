@@ -1,23 +1,15 @@
 import asyncio
 from sqlall import sqlall
+from utils import utils
 
 async def initialize(manager):
     manager.set_clear_all()
 
-    manager.set_entity("Produto", prod_id="INT", prod_name="TEXT", prod_spec="TEXT")
-    manager.set_primary_key("Produto", "prod_id")
+    # Define the tables before creating the database
+    manager.set_entity("Product", prod_id="INT", prod_name="TEXT", prod_spec="TEXT")
+    manager.set_primary_key("Product", "prod_id")
 
-    manager.set_entity("Loja", l_nick="TEXT", l_name="TEXT", l_credit="BOOL", l_delivery="BOOL", l_address="TEXT")
-    manager.set_primary_key("Loja", "l_nick")
-
-    manager.set_entity("Anuncio", l_nick="TEXT", prod_id="INT", prod_price="FLOAT", time_catch="TEXT")
-    manager.set_primary_key("Anuncio", "l_nick", "prod_id", "prod_price")
-    manager.set_foreign_key("Anuncio", "l_nick", "Loja")
-    manager.set_foreign_key("Anuncio", "prod_id", "Produto")
-
-    manager.set_entity("Meta", metakey="INT", range_start="INT", range_end="INT")
-    manager.set_primary_key("Meta", "metakey")
-
+    # Then build the database
     await manager.create_tables()
 
 async def main():
@@ -27,6 +19,26 @@ async def main():
     if not manager.loaded():
         await initialize(manager)
 
+    # Example entry
+    prod_dict = { "prod_id": 1, "prod_name": "shampoo", "prod_spec": "a nice thing to use!" }
+
+    # Will both build the object and insert it into the database
+    prod_object = await manager.build_and_insert("Product", **prod_dict)
+
+    # You can use the object that is built
+    print(prod_object.prod_name)
+
+    # You can also query it from the database
+    prod_list = await manager.select_all_from("Product", utils.where(prod_id=1))
+    prod = prod_list[0]
+    print(prod.prod_spec)
+
+    # Equals method will return True if objects belong to the same table
+    # and their primary keys are equal, False otherwise
+    if prod_object == prod:
+        print(f"Objects {prod_object} and {prod} are equal")
+
+    # Remember to close the connection when done
     await manager.close()
 
 asyncio.run(main())

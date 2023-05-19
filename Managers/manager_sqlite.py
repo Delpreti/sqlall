@@ -171,7 +171,7 @@ class ManagerSQLite(DatabaseManager):
 
     async def select_from(self, tables_obj, cols_obj="*", *args):
         '''
-        Returns a list of objects from the database that match the passed in conditions, if any
+        Returns a list of objects from the database that match the passed in conditions, if any.
         User must know some prior SQL to write the proper query (args should be in correct order)
         A view is also a valid argument to pass as tables_obj
         '''

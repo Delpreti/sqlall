@@ -47,6 +47,22 @@ class Order_by:
     def __str__(self):
         return f"ORDER BY {self.col} {self.dir}"
 
+class Join:
+    '''JOIN clause from SQL represented as an object'''
+    def __init__(self, table_A, table_B):
+        self.table_A = table_A
+        self.table_B = table_B
+        self.join_condition = ""
+        for key in table_A.foreign_key:
+            if key in table_B.primary_key:
+                self.join_condition += f"{table_A}.{key}={table_B}.{key}"
+                break # only one condition for join
+
+    def __str__(self):
+        if self.join_condition != "":
+            return f"INNER JOIN {self.table_B.e_name} ON {self.join_condition}"
+        return f"JOIN {self.table_B.e_name}"
+
 ## Statements -> separate on another file
 ## [insert, select, update, delete] are necessary for triggers
 
